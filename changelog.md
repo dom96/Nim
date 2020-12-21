@@ -33,9 +33,7 @@
 
 - Removed deprecated `iup` module from stdlib, it has already moved to
   [nimble](https://github.com/nim-lang/iup).
-- `macros.newLit` now works for ref object types.
-- `system.writeFile` has been overloaded to also support `openarray[byte]`.
-- Added overloaded `strformat.fmt` macro that use specified characters as delimiter instead of '{' and '}'.
+
 - Added a new Async Event implementation: `asyncdispatch.VirtualAsyncEvent`.
   - The implementation is designed to enable efficient coordination of async code across threads.
 
@@ -61,7 +59,7 @@
 - `writeStackTrace` is available in JS backend now.
 
 - `strscans.scanf` now supports parsing single characters.
-- `strscans.scanTuple` added which uses `strscans.scanf` internally, returning a tuple which can be unpacked for easier usage of `scanf`. 
+- `strscans.scanTuple` added which uses `strscans.scanf` internally, returning a tuple which can be unpacked for easier usage of `scanf`.
 
 - Added `setutils.toSet` that can take any iterable and convert it to a built-in set,
   if the iterable yields a built-in settable type.

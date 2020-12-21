@@ -130,38 +130,18 @@ proc asyncProc1(args: ThreadArg) {.async.} =
     # to sanity check against a race condition or deadlock.
     await args.event1.wait()
     args.event2.trigger()
-    #while true:
-      # the other thread may not have registered the event with it's event loop yet.
-      # keep trying to trigger, eventually the other thread will be ready.
-      #try:
-        #args.event2.trigger()
-        #break;
-      #except ValueError:
-        #continue
-    # Why echoes and not just a count? Because this test is about coordination of threads.
-    # We need to make sure the threads get properly synchronized on each iteration.
     echo "Thread 1: iteration ", i
 
 proc asyncProc2(args: ThreadArg) {.async.} =
   for i in 0 .. 50:
-    #while true:
-      #try:
-        #args.event1.trigger()
-        #break;
-      #except ValueError:
-        #continue
     args.event1.trigger()
     await args.event2.wait()
     echo "Thread 2: iteration ", i
 
 proc threadProc1(args: ThreadArg) {.thread.} =
-  ## We create new dispatcher explicitly to avoid bugs.
-  let loop = getGlobalDispatcher()
   waitFor asyncProc1(args)
 
 proc threadProc2(args: ThreadArg) {.thread.} =
-  ## We create new dispatcher explicitly avoid bugs.
-  let loop = getGlobalDispatcher()
   waitFor asyncProc2(args)
 
 proc main() =

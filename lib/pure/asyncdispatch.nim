@@ -166,8 +166,7 @@
 ##
 ## * The effect system (``raises: []``) does not work with async procedures.
 
-include "system/inclrtl"
-import os, tables, strutils, times, heapqueue, lists, options, asyncstreams
+import os, tables, strutils, times, heapqueue, options, asyncstreams
 import options, math, std/monotimes, hashes
 
 import asyncfutures except callSoon
@@ -250,6 +249,19 @@ template implementSetInheritable() {.dirty.} =
       ## Test for availability with `declared() <system.html#declared,untyped>`_.
       fd.FileHandle.setInheritable(inheritable)
 
+type
+  AsyncFD* = distinct int
+  Callback* = proc (fd: AsyncFD): bool {.closure, gcsafe.}
+
+  VirtualFD* = distinct int
+
+proc hash(x: AsyncFD): Hash {.borrow.}
+proc `==`*(x: AsyncFD, y: AsyncFD): bool {.borrow.}
+proc hash(x: VirtualFD): Hash {.borrow.}
+proc `==`*(x: VirtualFD, y: VirtualFD): bool {.borrow.}
+
+const InvalidVirtualFD* = VirtualFD(-1)
+
 when defined(windows) or defined(nimdoc):
   import winlean, sets, hashes
   type
@@ -268,17 +280,10 @@ when defined(windows) or defined(nimdoc):
       handles*: HashSet[AsyncFD] # Export handles so that an external library can register them.
       vd: VirtualEventDispatcher
 
-    VirtualEventDispatcher = ref object
-      virtualHandles: Table[VirtualFD, VirtualAsyncEvent] # pseudo handles for custom AsyncEvents.
-      nextVirtualHandle: VirtualFD
-      virtualMuxHandle: AsyncEvent # all the virtual handles get multiplexed through a single real handle.
-
     CustomObj = object of OVERLAPPED
       data*: CompletionData
 
     CustomRef* = ref CustomObj
-
-    AsyncFD* = distinct int
 
     PostCallbackData = object
       ioPort: Handle
@@ -293,7 +298,10 @@ when defined(windows) or defined(nimdoc):
       pcd: PostCallbackDataPtr
     AsyncEvent* = ptr AsyncEventImpl
 
-    VirtualFD* = distinct int
+    VirtualEventDispatcher = ref object
+      virtualHandles: Table[VirtualFD, VirtualAsyncEvent] # pseudo handles for custom AsyncEvents.
+      nextVirtualHandle: VirtualFD
+      virtualMuxHandle: AsyncEvent # all the virtual handles get multiplexed through a single real handle.
 
     VirtualAsyncEventImpl = object
       triggered: bool
@@ -304,15 +312,8 @@ when defined(windows) or defined(nimdoc):
       cb: Callback
     VirtualAsyncEvent* = ptr VirtualAsyncEventImpl
 
-    Callback* = proc (fd: AsyncFD): bool {.closure, gcsafe.}
-    NativeCallback = proc(fd: AsyncFD, bytesCount: DWORD, errcode: OSErrorCode) {.closure,gcsafe.}
-
-  proc hash(x: AsyncFD): Hash {.borrow.}
-  proc `==`*(x: AsyncFD, y: AsyncFD): bool {.borrow.}
-  proc hash(x: VirtualFD): Hash {.borrow.}
-  proc `==`*(x: VirtualFD, y: VirtualFD): bool {.borrow.}
-
-  const InvalidVirtualFD = VirtualFD(-1)
+    NativeWindowsCallback =
+      proc (fd: AsyncFD, bytesCount: DWORD, errcode: OSErrorCode) {.closure, gcsafe.}
 
   proc newDispatcher*(): owned PDispatcher =
     ## Creates a new Dispatcher instance.
@@ -980,8 +981,9 @@ when defined(windows) or defined(nimdoc):
     ## receiving notifications.
     registerWaitableEvent(fd, cb, FD_WRITE or FD_CONNECT or FD_CLOSE)
 
-  proc registerWaitableHandle(p: PDispatcher, hEvent: Handle, flags: DWORD, pcd: PostCallbackDataPtr, timeout: int,
-                                  handleCallback: NativeCallback) =
+  proc registerWaitableHandle(p: PDispatcher, hEvent: Handle, flags: DWORD,
+                              pcd: PostCallbackDataPtr, timeout: int,
+                              handleCallback: NativeWindowsCallback) =
     let handleFD = AsyncFD(hEvent)
     pcd.ioPort = p.ioPort
     pcd.handleFd = handleFD
@@ -1151,16 +1153,11 @@ else:
     InitDelayedCallbackListSize = 64 # initial size of delayed callbacks
                                      # queue.
   type
-    AsyncFD* = distinct cint
-    Callback* = proc (fd: AsyncFD): bool {.closure, gcsafe.}
-
     AsyncData = object
       readList: seq[Callback]
       writeList: seq[Callback]
 
     AsyncEvent* = distinct SelectEvent
-
-    VirtualFD* = distinct int
 
     VirtualAsyncEventImpl = object
       triggered: bool
@@ -1180,13 +1177,7 @@ else:
       nextVirtualHandle: VirtualFD
       virtualMuxHandle: AsyncEvent # all the virtual handles get multiplexed through a single real handle.
 
-  proc `==`*(x, y: AsyncFD): bool {.borrow.}
   proc `==`*(x, y: AsyncEvent): bool {.borrow.}
-
-  proc hash(x: VirtualFD): Hash {.borrow.}
-  proc `==`*(x: VirtualFD, y: VirtualFD): bool {.borrow.}
-
-  const InvalidVirtualFD = VirtualFD(-1)
 
   template newAsyncData(): AsyncData =
     AsyncData(
