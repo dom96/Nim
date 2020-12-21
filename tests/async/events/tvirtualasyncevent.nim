@@ -8,7 +8,7 @@ import asyncDispatch
 
 proc main() {.async.} =
   let ev = newVirtualAsyncEvent()
-  addEvent(ev, proc(fd: AsyncFD): bool {.gcsafe.} = echo "event triggered!"; true)
+  addEvent(ev, proc(ev: VirtualAsyncEvent): bool {.gcsafe.} = echo "event triggered!"; true)
   ev.trigger()
 
 waitFor main()

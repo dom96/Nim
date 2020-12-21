@@ -115,9 +115,9 @@ type
 when not(compileOption("threads")):
   {.fatal: "Please, compile this program with the --threads:on option!".}
 
-proc wait(event: VirtualAsyncEvent): Future[void] =
+proc wait(event: VirtualAsyncEvent, num: int): Future[void] =
   var retFuture = newFuture[void]("AsyncEvent.wait")
-  proc continuation(fd: AsyncFD): bool {.gcsafe.} =
+  proc continuation(ev: VirtualAsyncEvent): bool {.gcsafe.} =
     if not retFuture.finished:
       retFuture.complete()
     result = true
@@ -128,14 +128,14 @@ proc asyncProc1(args: ThreadArg) {.async.} =
   for i in 0 .. 50:
     # why 50 iterations? It's arbitrary. We can't run forever, but we want to run long enough
     # to sanity check against a race condition or deadlock.
-    await args.event1.wait()
+    await args.event1.wait(1)
     args.event2.trigger()
     echo "Thread 1: iteration ", i
 
 proc asyncProc2(args: ThreadArg) {.async.} =
   for i in 0 .. 50:
     args.event1.trigger()
-    await args.event2.wait()
+    await args.event2.wait(2)
     echo "Thread 2: iteration ", i
 
 proc threadProc1(args: ThreadArg) {.thread.} =

@@ -13,7 +13,7 @@ proc main() {.async.} =
   for i in 0 ..< 8000: # some number way higher than the typical physical fd limit
     var ev = newVirtualAsyncEvent()
     evs.add(ev)
-    addEvent(ev, proc(fd: AsyncFD): bool {.gcsafe,closure.} = triggerCount += 1; true)
+    addEvent(ev, proc(ev: VirtualAsyncEvent): bool {.gcsafe,closure.} = triggerCount += 1; true)
 
   for ev in evs:
     ev.trigger()

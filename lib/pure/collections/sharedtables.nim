@@ -225,3 +225,24 @@ proc init*[A, B](t: var SharedTable[A, B], initialSize = 32) =
 proc deinitSharedTable*[A, B](t: var SharedTable[A, B]) =
   deallocShared(t.data)
   deinitLock t.lock
+
+iterator pairs*[A, B](t: var SharedTable[A, B]): (A, B) =
+  ## Iterates over any ``(key, value)`` pair in the shared table ``t``.
+  withLock t:
+    let L = t.counter
+    for h in 0 .. t.dataLen:
+      if isFilled(t.data[h].hcode):
+        yield (t.data[h].key, t.data[h].val)
+        assert(t.counter == L, "the length of the table changed while iterating over it")
+
+proc hasKey*[A, B](t: var SharedTable[A, B], key: A): bool =
+  ## Returns true if ``key`` is in the shared table ``t``.
+  withLock t:
+    var hc: Hash
+    result = rawGet(t, key, hc) >= 0
+
+proc contains*[A, B](t: var SharedTable[A, B], key: A): bool =
+  ## Alias of `hasKey proc<#hasKey,Table[A,B],A>`_ for use with
+  ## the ``in`` operator.
+
+  return hasKey[A, B](t, key)

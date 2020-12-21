@@ -1,6 +1,5 @@
 discard """
 output: '''
-runForever should throw ValueError, this is expected
 triggerCount: 100
 '''
 """
@@ -13,16 +12,13 @@ var evs = newSeq[VirtualAsyncEvent]()
 for i in 0 ..< 100:
   var ev = newVirtualAsyncEvent()
   evs.add(ev)
-  addEvent(ev, proc(fd: AsyncFD): bool {.gcsafe,closure.} = triggerCount += 1; true)
+  addEvent(ev, proc(ev: VirtualAsyncEvent): bool {.gcsafe,closure.} = triggerCount += 1; true)
 
 proc main() {.async.} =
   for ev in evs:
     await sleepAsync(10)
     ev.trigger()
 
-try:
-  asyncCheck main()
-  runForever()
-except ValueError:
-  echo "runForever should throw ValueError, this is expected"
-  echo "triggerCount: ", triggerCount
+waitFor main()
+drain()
+echo "triggerCount: ", triggerCount

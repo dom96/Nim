@@ -633,3 +633,6 @@ template withData*[T](s: Selector[T], fd: SocketHandle|int, value, body1,
 
 proc getFd*[T](s: Selector[T]): int =
   return s.kqFD.int
+
+proc getFd*(ev: SelectEvent): int =
+  return ev.rfd
