@@ -33,6 +33,11 @@
 
 - Removed deprecated `iup` module from stdlib, it has already moved to
   [nimble](https://github.com/nim-lang/iup).
+- `macros.newLit` now works for ref object types.
+- `system.writeFile` has been overloaded to also support `openarray[byte]`.
+- Added overloaded `strformat.fmt` macro that use specified characters as delimiter instead of '{' and '}'.
+- Added a new Async Event implementation: `asyncdispatch.VirtualAsyncEvent`.
+  - The implementation is designed to enable efficient coordination of async code across threads.
 
 - `nodejs` backend now supports osenv: `getEnv`, `putEnv`, `envPairs`, `delEnv`, `existsEnv`.
 
