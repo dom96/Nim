@@ -115,6 +115,8 @@ type
 when not(compileOption("threads")):
   {.fatal: "Please, compile this program with the --threads:on option!".}
 
+var thread1Started = false
+
 proc wait(event: AsyncEvent): Future[void] =
   var retFuture = newFuture[void]("AsyncEvent.wait")
   proc continuation(fd: AsyncFD): bool {.gcsafe.} =
@@ -125,29 +127,22 @@ proc wait(event: AsyncEvent): Future[void] =
   return retFuture
 
 proc asyncProc1(args: ThreadArg) {.async.} =
+  thread1Started = true
   for i in 0 .. 50:
-    # why 50 iterations? It's arbitrary. We can't run forever, but we want to run long enough
-    # to sanity check against a race condition or deadlock.
+    echo "Thread 1: iteration ", i
     await args.event1.wait()
     args.event2.trigger()
-    # Why echoes and not just a count? Because this test is about coordination of threads.
-    # We need to make sure the threads get properly synchronized on each iteration.
-    echo "Thread 1: iteration ", i
 
 proc asyncProc2(args: ThreadArg) {.async.} =
   for i in 0 .. 50:
+    echo "Thread 2: iteration ", i
     args.event1.trigger()
     await args.event2.wait()
-    echo "Thread 2: iteration ", i
 
 proc threadProc1(args: ThreadArg) {.thread.} =
-  ## We create new dispatcher explicitly to avoid bugs.
-  let loop = getGlobalDispatcher()
   waitFor asyncProc1(args)
 
 proc threadProc2(args: ThreadArg) {.thread.} =
-  ## We create new dispatcher explicitly avoid bugs.
-  let loop = getGlobalDispatcher()
   waitFor asyncProc2(args)
 
 proc main() =
@@ -160,7 +155,7 @@ proc main() =
   args.event2 = newAsyncEvent()
   thread1.createThread(threadProc1, args)
   # make sure the threads startup in order, or we will either deadlock or error.
-  sleep(100)
+  while not thread1Started: sleep(100)
   thread2.createThread(threadProc2, args)
   joinThreads(thread1, thread2)
 

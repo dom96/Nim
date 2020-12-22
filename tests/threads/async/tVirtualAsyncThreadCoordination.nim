@@ -115,8 +115,10 @@ type
 when not(compileOption("threads")):
   {.fatal: "Please, compile this program with the --threads:on option!".}
 
-proc wait(event: VirtualAsyncEvent, num: int): Future[void] =
-  var retFuture = newFuture[void]("AsyncEvent.wait")
+var thread1Started = false
+
+proc wait(event: VirtualAsyncEvent): Future[void] =
+  var retFuture = newFuture[void]("VirtualAsyncEvent.wait")
   proc continuation(ev: VirtualAsyncEvent): bool {.gcsafe.} =
     if not retFuture.finished:
       retFuture.complete()
@@ -125,18 +127,17 @@ proc wait(event: VirtualAsyncEvent, num: int): Future[void] =
   return retFuture
 
 proc asyncProc1(args: ThreadArg) {.async.} =
+  thread1Started = true
   for i in 0 .. 50:
-    # why 50 iterations? It's arbitrary. We can't run forever, but we want to run long enough
-    # to sanity check against a race condition or deadlock.
-    await args.event1.wait(1)
-    args.event2.trigger()
     echo "Thread 1: iteration ", i
+    await args.event1.wait()
+    args.event2.trigger()
 
 proc asyncProc2(args: ThreadArg) {.async.} =
   for i in 0 .. 50:
-    args.event1.trigger()
-    await args.event2.wait(2)
     echo "Thread 2: iteration ", i
+    args.event1.trigger()
+    await args.event2.wait()
 
 proc threadProc1(args: ThreadArg) {.thread.} =
   waitFor asyncProc1(args)
@@ -154,7 +155,7 @@ proc main() =
   args.event2 = newVirtualAsyncEvent()
   thread1.createThread(threadProc1, args)
   # make sure the threads startup in order, or we will either deadlock or error.
-  sleep(100)
+  while not thread1Started: sleep(100)
   thread2.createThread(threadProc2, args)
   joinThreads(thread1, thread2)
 
