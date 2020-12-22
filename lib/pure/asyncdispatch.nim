@@ -2004,6 +2004,9 @@ type
     triggered: bool
     vFD: VirtualFD
     cb: VirtualAsyncEventCallback
+    cbRawEnv: ForeignCell
+    when compileOption("threads"):
+      lock: RLock
   VirtualAsyncEvent* = ptr VirtualAsyncEventImpl
 
 proc initVirtualEventDispatcher(): VirtualEventDispatcher =
@@ -2020,23 +2023,33 @@ var globalVirtualEventDispatcher = initVirtualEventDispatcher()
 proc unregister*(ev: VirtualAsyncEvent) =
   ## Unregisters event ``ev``.
   let vd = globalVirtualEventDispatcher
-  doAssert(ev.vFD in vd.virtualHandles, "Event is not registered in the queue!")
 
   withLockIfThreads vd.lock:
+    doAssert(ev.vFD in vd.virtualHandles, "Event is not registered in the queue!")
+    doAssert(not ev.cb.isNil)
     vd.virtualHandles.del ev.vFD
+    system.dispose(ev.cbRawEnv)
     ev.cb = nil
 
+    # TODO: Should we track which virtual async events have been registered
+    # on this thread and unregister the native event once all of the virtual
+    # ones have been unregistered? If we don't do this we will wake up the
+    # thread needlessly so this could be a useful optimisation for certain
+    # use cases.
+
 proc callSoonTriggeredEvent(ev: VirtualAsyncEvent) =
-  let virtualTriggerCb =
-    proc () {.gcSafe.} =
-      if ev.cb(ev):
-        # the convention is that if the callback returns true,
-        # we unregister the event.
-        ev.unregister
-  callSoon(virtualTriggerCb)
+  withLockIfThreads ev.lock:
+    let virtualTriggerCb =
+      proc () =
+        withLockIfThreads ev.lock:
+          if ev.cb(ev):
+            # the convention is that if the callback returns true,
+            # we unregister the event.
+            ev.unregister
+    callSoon(virtualTriggerCb)
 
 proc register(ev: VirtualAsyncEvent) =
-  proc onNativeEvent(fd: AsyncFD): bool {.gcsafe.} =
+  proc onNativeEvent(fd: AsyncFD): bool =
     # find the virtual events that triggered the physical event and
     # add them to the callback list.
     # Not very efficient, but requires the least coordination between threads.
@@ -2048,8 +2061,9 @@ proc register(ev: VirtualAsyncEvent) =
         ev.triggered = false
         var event = ev
         callSoonTriggeredEvent(event)
-    # always return false b/c we never want to unregister this event
-    return false
+    # we want to return false so that our event isn't unregistered, as long
+    # as we have virtual handles that can be triggered.
+    return globalVirtualEventDispatcher.virtualHandles.len == 0
 
   let disp = getGlobalDispatcher()
   if not disp.contains(globalVirtualEventDispatcher.virtualMuxHandle):
@@ -2068,12 +2082,15 @@ proc newVirtualAsyncEvent*(): VirtualAsyncEvent =
   ## managed by Nim's GC. Use the ``close`` proc to deallocate it.
   result = cast[VirtualAsyncEvent](allocShared0(sizeof(VirtualAsyncEventImpl)))
   result.cb = nil
-  result.vFD = globalVirtualEventDispatcher.nextVirtualHandle
-  globalVirtualEventDispatcher.nextVirtualHandle = VirtualFD(int(globalVirtualEventDispatcher.nextVirtualHandle) + 1)
+  when compileOption("threads"):
+    initRLock(result.lock)
+  withLockIfThreads globalVirtualEventDispatcher.lock:
+    result.vFD = globalVirtualEventDispatcher.nextVirtualHandle
+    globalVirtualEventDispatcher.nextVirtualHandle = VirtualFD(int(globalVirtualEventDispatcher.nextVirtualHandle) + 1)
 
 proc trigger*(ev: VirtualAsyncEvent) =
   ## Sets new ``VirtualAsyncEvent`` to signaled state.
-  withLockIfThreads globalVirtualEventDispatcher.lock:
+  withLockIfThreads ev.lock:
     ev.triggered = true
 
     # send the signal to wake up the dispatcher thread(s).
@@ -2086,9 +2103,14 @@ proc addEvent*(ev: VirtualAsyncEvent, cb: VirtualAsyncEventCallback) =
   # the VirtualAsyncEventDispatcher.
   register(ev)
 
-  withLockIfThreads globalVirtualEventDispatcher.lock:
-    assert ev.vFD notin globalVirtualEventDispatcher.virtualHandles
+  withLockIfThreads ev.lock:
+    assert(
+      ev.vFD notin globalVirtualEventDispatcher.virtualHandles,
+      "Cannot add to a virtual async event that already has an event bound."
+    )
+    assert ev.cb.isNil, "Code below expects event to not have a bound callback."
     ev.cb = cb
+    ev.cbRawEnv = system.protect(rawEnv(ev.cb))
     globalVirtualEventDispatcher.virtualHandles[ev.vFD] = ev
     if ev.triggered:
       ev.triggered = false

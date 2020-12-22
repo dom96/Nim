@@ -119,7 +119,8 @@ var thread1Started = false
 
 proc wait(event: VirtualAsyncEvent): Future[void] =
   var retFuture = newFuture[void]("VirtualAsyncEvent.wait")
-  proc continuation(ev: VirtualAsyncEvent): bool {.gcsafe.} =
+  proc continuation(ev: VirtualAsyncEvent): bool {.closure.} =
+    assert(not retFuture.isNil)
     if not retFuture.finished:
       retFuture.complete()
     result = true
@@ -141,9 +142,11 @@ proc asyncProc2(args: ThreadArg) {.async.} =
 
 proc threadProc1(args: ThreadArg) {.thread.} =
   waitFor asyncProc1(args)
+  # drain()
 
 proc threadProc2(args: ThreadArg) {.thread.} =
   waitFor asyncProc2(args)
+  # drain()
 
 proc main() =
   var
